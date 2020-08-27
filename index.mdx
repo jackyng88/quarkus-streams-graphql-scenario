@@ -9,7 +9,8 @@ and more specifically Kafka Streams.
 - We will use Quarkus for most of the backend functionality. It will be used for our mock producer to produce events, 
 for streams processing with our Kafka Streams topology, to create a WebSocket server and lastly to push those events from
 Kafka Streams onto said WebSocket Server.
-- A GraphQL API Server will be created using Node, Sequelize (Node-based ORM for various DBMS) using a local SQLite store, and Apollo-Server.
+- A GraphQL API Server will be created using Node (Apollo Server)
+- The database for which the GraphQL API will hook up to will use Sequelize (Node-based ORM for various DBMS) using a local SQLite store, and Apollo-Server.
 - A "frontend" component that using VueJS will serve two functions. Through Vue (and mostly Javascript) we will connect to 
 the WebSocket and read messages. Vue-Apollo will then be used to query and perform mutations through the GraphQL API Server.
 - **TO-DO/Work-in-Progress** Complete GraphQL subscriptions functionality portion for reactiveness on the state of the events.
@@ -71,6 +72,7 @@ node_modules/.bin/sequelize init
 
 ```json
 // config/config.json
+
 {
   "development": {
     "dialect": "sqlite",
@@ -99,6 +101,8 @@ inside `migrations/XXXXXXXXX-create-scores.js`. We need to make sure that our `s
 being un-nullable.
 
 ```js
+// migrations/XXXXXXXXX-create-scores.js
+
 'use strict';
 module.exports = {
   up: async (queryInterface, Sequelize) => {
@@ -209,7 +213,7 @@ create another model and specify relationships (and inverse relationships) betwe
 the necessary packages.
 
 ```shell
-npm install apollo-server graphql
+npm install apollo-server graphql --save
 ```
 
 - Once done let's create a `src` folder as well as an `index.js` file with the following content.
