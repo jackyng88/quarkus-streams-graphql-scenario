@@ -98,7 +98,7 @@ node_modules/.bin/sequelize model:create --name Scores --attributes scoresId:str
 inside `migrations/XXXXXXXXX-create-scores.js`. We need to make sure that our `scoresId` field is our primary key as well as the other fields
 being un-nullable.
 
-```json
+```js
 'use strict';
 module.exports = {
   up: async (queryInterface, Sequelize) => {
