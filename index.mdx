@@ -26,6 +26,13 @@ our Quarkus backend (mock producer, Kafka Streams topology, and WebSocket server
 **Node**
 - We will need Node.js and more specifically npm for not only the GraphQL Server but for VueJS as well.
 
+**VueJS CLI**
+- If you don't already have it installed as long as you have npm you can install it with the following command:
+
+```shell
+npm install -g @vue/cli
+```
+
 *The following are optional, you can tailor this to use a local Kafka cluster*
 
 **OpenShift Container Platform**
@@ -812,4 +819,74 @@ mutation {
 ![GraphQL Mutation](./images/graphql-mutation.png)
 
 
+## Creating the Client Application with VueJS and Vue-Apollo
 
+- We have all the building blocks of the scenario now - a mock producer sending events to a Kafka Topic, a Kafka Streams Topology 
+that will process and stream events to a WebSocket server, a local SQLite database, and a GraphQL API Server that will perform
+queries on mutations backed with said SQLite database. We will now have a VueJS application that will handle the client side connection
+and process messages received from the WebSocket. With Vue-Apollo it will either perform a `createScores` mutation or an `updateScores`
+mutation depending on if the query with `scoresId` primary key returns null or not.
+
+- Now go back to the root of our `quarkus-kstreams-graphql` project folder. Bootstrap our Vue application with the following command. Again
+you can replace `{vue}` with a name of your choosing but I will be using `vue` for simplicity's sake.
+
+```shell
+vue create {vue}
+```
+
+- Choose the default settings.
+
+![Vue CLI](./images/vue-cli.png)
+
+- Change directories into the newly created Vue project.
+
+```shell
+cd vue
+```
+
+- You can test the newly created boilerplate Vue project by going to `localhost:8080` after running:
+
+```shell
+npm run serve
+```
+
+- Now we need to install the necessary dependencies for our Vue project for use with GraphQL.
+
+```shell
+npm install apollo-boost apollo-client apollo-link-http apollo-cache-inmemory vue-apollo graphql graphql-tag --save
+```
+
+- Now open `src/main.js` file and paste the following: 
+
+```js
+import Vue from 'vue'
+import App from './App.vue'
+import ApolloClient from "apollo-boost"
+import VueApollo from "vue-apollo"
+
+
+const apolloClient = new ApolloClient({
+  uri: "http://localhost:4000/"
+})
+
+Vue.use(VueApollo)
+
+const apolloProvider = new VueApollo({
+  defaultClient: apolloClient,
+  cache: new InMemoryCache(),
+  connectToDevTools: true
+})
+
+Vue.config.productionTip = false
+
+new Vue({
+  render: h => h(App),
+  apolloProvider
+}).$mount('#app')
+```
+
+- Things of note:
+    - The URI that the `apolloClient` is connecting to is the GraphQL API Server we created at `localhost:4000`
+    - We're mounting the `App.vue` file.
+
+- 
