@@ -887,6 +887,273 @@ new Vue({
 
 - Things of note:
     - The URI that the `apolloClient` is connecting to is the GraphQL API Server we created at `localhost:4000`
-    - We're mounting the `App.vue` file.
+    - We're mounting the `App.vue` component file to be rendered.
+
+- We now need to handle the connection to WebSocket as well as the messages. Create a new file in the `src` folder named
+`socket.js`
+
+```js
+// src/socket.js
+
+import Vue from "vue"
+
+const socket = new WebSocket("ws://localhost:8085/ongoing")
+
+const emitter = new Vue({
+    data() {
+        return {
+            parsed: []
+        }
+    },
+    methods: {
+        send(message) {
+            if (1 === socket.readyState)
+                socket.send(message)
+        }
+    }
+})
+
+socket.onmessage = function (msg) {
+    this.parsed = JSON.parse(msg.data)
+    emitter.$emit("message", this.parsed)
+}
+socket.onerror = function (err) {
+    emitter.$emit("error", err)
+}
+
+
+export default emitter
+
+```
+
+- Things of note:
+    - Connection is established to the WebSocket via `ws://localhost:8085/ongoing` with the `socket` object.
+    - When a connection is established `send` is invoked.
+    - The data from the message is changed into JSON and them emitted for use.
+
+
+- Time to update our `App.vue` component file in the `src` folder. Paste the following: 
+
+```vue
+<template>
+  <div id="test">
+    <h2>Vue.js WebSocket Test</h2>
+    <li v-for="score in allScores" :key="score.scoresId">{{ score }}</li>
+  </div>
+</template>
+
+<script>
+import Socket from "./socket";
+import { CREATE_SCORE } from './queries/create_scores'
+import { UPDATE_SCORES } from './queries/update_scores'
+import { GET_ALL_SCORES } from './queries/all_scores'
+import { GET_SINGLE_SCORE} from './queries/get_single_score'
+
+export default {
+  name: "App",
+  data: function () {
+    return {
+      messages: [],
+      connection: null,
+      index: 0,
+      scores: { },
+      scoresId: '',
+      awayTeamId: '',
+      homeTeamId: '',
+      awayTeamScore: '',
+      homeTeamScore: '',
+      quarter: '',
+      time: '',
+      gameComplete: false
+    };
+  },
+  apollo: {
+    allScores: {
+        query: GET_ALL_SCORES,
+    }
+  },
+  methods: {
+    async handleMessage(msg) {
+        this.messages.push(msg);
+        let idx = this.messages[this.messages.length - 1]["scoreId"];
+        console.log("index is ", idx)
+
+        const temp = await this.checkScores(idx)
+        console.log(temp.data.score)
+
+        if (temp.data.score === null) {
+            this.createScores(msg);
+        }
+        else {
+            this.updateScores(msg);
+        }
+    },
+    async checkScores(scoreId) {
+        let score = this.$apollo.query({
+            query: GET_SINGLE_SCORE,
+            variables: {
+                scoresId: scoreId
+            }
+        })
+
+        console.log("Checking score " + scoreId)
+        return score
+
+    },
+    updateScores(msg) {
+        console.log(`Update score: # ${msg["scoreId"]}`)
+        this.$apollo.mutate({
+            
+          mutation: UPDATE_SCORES,
+          variables:{
+            scoresId: msg["scoreId"],
+            awayTeamId: msg["awayTeamId"],
+            homeTeamId: msg["homeTeamId"],
+            awayTeamScore: msg["awayTeamScore"],
+            homeTeamScore: msg["homeTeamScore"],
+            quarter: msg["quarter"],
+            time: msg["time"],
+            gameComplete: msg["gameComplete"],
+          }
+        }
+      )
+    },
+    createScores(msg) {
+        console.log("Create score:", msg["scoreId"])
+        this.$apollo.mutate({
+          mutation: CREATE_SCORE,
+          variables:{
+            scoresId: msg["scoreId"],
+            awayTeamId: msg["awayTeamId"],
+            homeTeamId: msg["homeTeamId"],
+            awayTeamScore: msg["awayTeamScore"],
+            homeTeamScore: msg["homeTeamScore"],
+            quarter: msg["quarter"],
+            time: msg["time"],
+            gameComplete: msg["gameComplete"],
+          },
+        }
+      )
+    },
+
+  },
+  created() {
+    Socket.$on("message", this.handleMessage);
+  },
+  beforeDestroy() {
+    Socket.$off("message", this.handleMessage);
+  },
+};
+</script>
+
+<style>
+#app {
+  font-family: Avenir, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-align: center;
+  color: #2c3e50;
+  margin-top: 60px;
+}
+</style>
+```
+
+- There's a lot here so let's break it down by sections.
+
+### Template Section
+- Not too much here besides that it's using a Vue directive known as `v-for` to iterate and dispaly with a list.
+- `allScores` will be the GraphQL object that holds the all the returned data from the GraphQL query.
+
+### Javascript Section
+- We have 5 imports here. The first being the Socket from `socket.js` so we can properly use the WebSocket. The next 4
+which we will create shortly are going to be the gql (graph query langage) queries that we will send.
+- We have a `data` component which must be in the form of a function in Vue and thus must return. There are a few datatypes here 
+to be used.
+- Within the `apollo` we have an `allScores` object whose `query:` field is being called with `GET_ALL_SCORES`.
+- Next in `methods:` we have 4 functions - `handleMessage()`, `checkScores()`, `updatesScres()`, and `createScores()`. The first two
+of which are asynchronous functions. 
+- In `handleMessage()` we're getting the `scoresId` primary key from the most recent message. The value of `temp` is invoked
+by calling `await this.checkScores(idx)`. `checkScores()` will return a Promise and due to the asynchronous nature of it
+we need to supply `await` before we can verify the actual data within the Promise. 
+- `checkScores()` is an asychronous function that which will query the GraphQL API Server with the provided `scoresId` primary key.
+- Next either `createScores()` or `updateScores()` functions are called depending on if the data within the Promise is null. If 
+the data is null that means the query did not return data from the GraphQL API Server with that `scoresId` primary key.
+- Lastly we have the `created()` and `beforeDestroy()` lifecycle hooks which are Vue's ways of mounting certain items to the DOM. 
+When the Vue component is created and socket connection is established it calls `handleMessage()`.
+
+- We now need to create our `gql` queries for use with our Apollo Client. Create a new folder in `src` named `queries`. We will need
+to create 4 different Javascript files.
+
+**`all_scores.js`**
+```js
+import gql from 'graphql-tag'
+
+export const GET_ALL_SCORES = gql`query {
+      allScores {
+        scoresId,
+        awayTeamId,
+        homeTeamId,
+        awayTeamScore,
+        homeTeamScore,
+        quarter,
+        time,
+        gameComplete
+      }
+    }`
+```
+
+**`get_single_score.js`**
+
+```js
+import gql from 'graphql-tag'
+
+export const GET_SINGLE_SCORE = gql`query getScore($scoresId: String!) {
+        score(scoresId: $scoresId) {
+            scoresId,
+            awayTeamId,
+            homeTeamId,
+            awayTeamScore,
+            homeTeamScore,
+            quarter,
+            time,
+            gameComplete
+        }
+    }`
+```
+
+**`create_scores.js`**
+```js
+import gql from 'graphql-tag'
+
+export const CREATE_SCORE = gql`mutation createScores($scoresId: String!, $awayTeamId: Int! $homeTeamId: Int!, 
+    $awayTeamScore: Int!, $homeTeamScore: Int!, $quarter: Int!, $time: Int! $gameComplete: Boolean!) {
+        createScores(scoresId: $scoresId, awayTeamId: $awayTeamId, homeTeamId: $homeTeamId, awayTeamScore: $awayTeamScore, 
+        homeTeamScore: $homeTeamScore, quarter: $quarter, time: $time, gameComplete: $gameComplete) {
+            scoresId,
+            awayTeamId,
+            homeTeamId,
+            awayTeamScore,
+            homeTeamScore,
+            quarter,
+            time,
+            gameComplete
+    }
+}`
+```
+
+**`update_scores.js`**
+```js
+import gql from 'graphql-tag'
+
+export const UPDATE_SCORES = gql`mutation updateScores($scoresId: String!, $awayTeamId: Int! $homeTeamId: Int!, 
+    $awayTeamScore: Int!, $homeTeamScore: Int!, $quarter: Int!, $time: Int! $gameComplete: Boolean!) {
+        updateScores(scoresId: $scoresId, awayTeamId: $awayTeamId, homeTeamId: $homeTeamId, awayTeamScore: $awayTeamScore, 
+        homeTeamScore: $homeTeamScore, quarter: $quarter, time: $time, gameComplete: $gameComplete) 
+    }
+`
+```
+
+
+## Using the Entire Application
 
 - 
