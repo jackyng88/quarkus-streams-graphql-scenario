@@ -936,7 +936,7 @@ export default emitter
 
 ```vue
 <template>
-  <div id="test">
+  <div id="app">
     <h2>Vue.js WebSocket Test</h2>
     <li v-for="score in allScores" :key="score.scoresId">{{ score }}</li>
   </div>
@@ -1070,7 +1070,7 @@ which we will create shortly are going to be the gql (graph query langage) queri
 - We have a `data` component which must be in the form of a function in Vue and thus must return. There are a few datatypes here 
 to be used.
 - Within the `apollo` we have an `allScores` object whose `query:` field is being called with `GET_ALL_SCORES`.
-- Next in `methods:` we have 4 functions - `handleMessage()`, `checkScores()`, `updatesScres()`, and `createScores()`. The first two
+- Next in `methods:` we have 4 functions - `handleMessage()`, `checkScores()`, `updateScores()`, and `createScores()`. The first two
 of which are asynchronous functions. 
 - In `handleMessage()` we're getting the `scoresId` primary key from the most recent message. The value of `temp` is invoked
 by calling `await this.checkScores(idx)`. `checkScores()` will return a Promise and due to the asynchronous nature of it
@@ -1156,4 +1156,23 @@ export const UPDATE_SCORES = gql`mutation updateScores($scoresId: String!, $away
 
 ## Using the Entire Application
 
-- 
+- Start up the GraphQL API Server by going to the `graphql-server` folder under root.
+
+```shell
+node src/index.js
+```
+
+- Start the Vue components within the `vue` project folder.
+
+```shell
+npm run serve
+```
+
+- Lastly, start the Quarkus application by in the root directory.
+
+```shell
+./mvnw quarkus:dev
+```
+
+- Go to your browser at `localhost:8080` to view the incoming messages. You can open the console to see the 
+console logged messages.
