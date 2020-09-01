@@ -694,6 +694,10 @@ const typeDefs = gql`
           time: Int!
           gameComplete: Boolean!
           ): String
+
+    type Subscription {
+        scoresUpdated: Scores
+      }
         
     }
 `
@@ -711,6 +715,10 @@ Create a `resolvers.js` file inside the `src` directory and add the following co
 
 ```js
 // src/resolvers.js
+
+const { PubSub } = require('apollo-server')
+
+const pubsub = new PubSub();
 
 const resolvers = {
     
@@ -738,6 +746,7 @@ const resolvers = {
               })
         },
         async deleteScores(root, { scoresId }, { models }) {
+            //const id = scoresId
             models.Scores.destroy({
                 where: {
                     scoresId: scoresId
@@ -764,20 +773,31 @@ const resolvers = {
                 }  
             )
 
+            pubsub.publish("scoreUpdated", { scoresUpdated: { scoresId, awayTeamId, homeTeamId, awayTeamScore,
+                                                             homeTeamScore, quarter, time, gameComplete } });
             return `Score with ID: ${scoresId} updated`
         }
     },
 
+    Subscription: {
+        scoresUpdated: {
+            // Additional event labels can be passed to asyncIterator creation
+            subscribe: () => pubsub.asyncIterator(["scoreUpdated"]),
+          },
+    },
 }
 
 module.exports = resolvers
 
-```
 
-- The `score` mutation does a single lookup within our model context by primary key and `allScores` is basically a `select * from Scores`.
-The `createScores` mutation accepts all the fields and creates a new record in the database with the supplied details. 
-It will then return the newly created user. `updateScores` mutation will update all the fields matching the provided scoresId. 
-The equivalent of a SQL statement such as an update where scoresId = x. 
+```
+- Things of note:
+    - The `score` mutation does a single lookup within our model context by primary key and `allScores` is basically a `select * from Scores`.
+    The `createScores` mutation accepts all the fields and creates a new record in the database with the supplied details. 
+    It will then return the newly created user. `updateScores` mutation will update all the fields matching the provided scoresId. 
+    The equivalent of a SQL statement such as an update where scoresId = x. 
+    - We're adding `pubsub` functionality so we can properly use subscriptions. When the `updateScores` mutation is called
+    it publishes that event and the subscription `scoresUpdated` will receive it on the `"scoreUpdated"` channel for specificity.
 
 
 - **TO-DO** Will need to update resolvers.js to accomodate for the relationships between future models.
@@ -856,40 +876,94 @@ npm run serve
 - Now we need to install the necessary dependencies for our Vue project for use with GraphQL.
 
 ```shell
-npm install apollo-boost apollo-client apollo-link-http apollo-cache-inmemory vue-apollo graphql graphql-tag --save
+npm install apollo-link-ws apollo-boost apollo-client apollo-link-http apollo-cache-inmemory vue-apollo graphql graphql-tag --save
 ```
 
 - Now open `src/main.js` file and paste the following: 
 
 ```js
+import { InMemoryCache } from 'apollo-cache-inmemory'
+import { ApolloClient } from 'apollo-client'
+import { split } from 'apollo-link'
+import { HttpLink } from 'apollo-link-http'
+import { WebSocketLink } from 'apollo-link-ws'
+import { getMainDefinition } from 'apollo-utilities'
 import Vue from 'vue'
+import VueApollo from 'vue-apollo'
 import App from './App.vue'
-import ApolloClient from "apollo-boost"
-import VueApollo from "vue-apollo"
 
+Vue.config.productionTip = false
+
+const httpLink = new HttpLink({
+    uri: 'http://localhost:4000/graphql'
+})
+
+const wsLink = new WebSocketLink({
+    uri: 'ws://localhost:4000/graphql',
+    options: {
+      reconnect: true,
+      lazy: true
+    }
+})
+
+wsLink.subscriptionClient.on('connecting', () => {
+  console.log('connecting');
+});
+
+wsLink.subscriptionClient.on('connected', () => {
+  console.log('connected');
+});
+
+wsLink.subscriptionClient.on('reconnecting', () => {
+  console.log('reconnecting');
+});
+
+wsLink.subscriptionClient.on('reconnected', () => {
+  console.log('reconnected');
+});
+
+wsLink.subscriptionClient.on('disconnected', () => {
+  console.log('disconnected');
+});
+
+wsLink.subscriptionClient.maxConnectTimeGenerator.duration = () =>
+  wsLink.subscriptionClient.maxConnectTimeGenerator.max;
+
+const link = split(
+    ({ query }) => {
+      const definition = getMainDefinition(query);
+      return (
+        definition.kind === "OperationDefinition" &&
+        definition.operation === "subscription"
+      );
+    },
+    wsLink,
+    httpLink
+)
 
 const apolloClient = new ApolloClient({
-  uri: "http://localhost:4000/"
+    link,
+    cache: new InMemoryCache(),
+    connectToDevTools: true
+})
+
+const apolloProvider = new VueApollo({
+    defaultClient: apolloClient
 })
 
 Vue.use(VueApollo)
 
-const apolloProvider = new VueApollo({
-  defaultClient: apolloClient,
-  cache: new InMemoryCache(),
-  connectToDevTools: true
-})
-
-Vue.config.productionTip = false
-
 new Vue({
-  render: h => h(App),
-  apolloProvider
+    apolloProvider,
+    render: h => h(App)
 }).$mount('#app')
 ```
 
 - Things of note:
-    - The URI that the `apolloClient` is connecting to is the GraphQL API Server we created at `localhost:4000`
+    - The URI that the `httpLink` is connecting to is the GraphQL API Server we created at `localhost:4000/graphql`
+    - `wsLink` is the URI for our WebSocket server that our Apollo Client will later need to connect to for subscriptions.
+    - `link` is called with the `split` function to separate the URI endpoints that we're using. Queries and mutations will go to 
+    `httpLink` and subscriptions will go to `wsLink`.
     - We're mounting the `App.vue` component file to be rendered.
 
 - We now need to handle the connection to WebSocket as well as the messages. Create a new file in the `src` folder named
@@ -940,17 +1014,41 @@ export default emitter
 ```vue
 <template>
   <div id="app">
-    <h2>Vue.js WebSocket Test</h2>
-    <li v-for="score in allScores" :key="score.scoresId">{{ score }}</li>
+    <h2>Vue.js Kafka Streams GraphQL Test</h2>
+
+    <table border="1" width="100%" style="border-collapse: collapse;">
+      <tr>
+        <th>scoresId</th>
+        <th>awayTeamId</th>
+        <th>homeTeamId</th>
+        <th>awayTeamScore</th>
+        <th>homeTeamScore</th>
+        <th>quarter</th>
+        <th>time</th>
+        <th>gameComplete</th>
+      </tr>
+
+      <tr v-bind:key="score.scoresId" v-for="score in allScores">
+        <td>{{ score.scoresId }}</td>
+        <td>{{ score.awayTeamId }}</td>
+        <td>{{ score.homeTeamId }}</td>
+        <td>{{ score.awayTeamScore }}</td>
+        <td>{{ score.homeTeamScore }}</td>
+        <td>{{ score.quarter }}</td>
+        <td>{{ score.time }}</td>
+        <td>{{ score.gameComplete }}</td>
+      </tr>
+    </table>
   </div>
 </template>
 
 <script>
 import Socket from "./socket";
-import { CREATE_SCORE } from './queries/create_scores'
-import { UPDATE_SCORES } from './queries/update_scores'
-import { GET_ALL_SCORES } from './queries/all_scores'
-import { GET_SINGLE_SCORE} from './queries/get_single_score'
+import { CREATE_SCORE } from "./queries/create_scores";
+import { UPDATE_SCORES } from "./queries/update_scores";
+import { GET_ALL_SCORES } from "./queries/all_scores";
+import { GET_SINGLE_SCORE } from "./queries/get_single_score";
+import { SCORES_SUBSCRIPTION } from "./queries/updated_scores_subscription";
 
 export default {
   name: "App",
@@ -959,86 +1057,112 @@ export default {
       messages: [],
       connection: null,
       index: 0,
-      scores: { },
-      scoresId: '',
-      awayTeamId: '',
-      homeTeamId: '',
-      awayTeamScore: '',
-      homeTeamScore: '',
-      quarter: '',
-      time: '',
-      gameComplete: false
+      scores: {},
+      scoresId: "",
+      awayTeamId: "",
+      homeTeamId: "",
+      awayTeamScore: "",
+      homeTeamScore: "",
+      quarter: "",
+      time: "",
+      gameComplete: false,
+      allScores: {},
     };
   },
   apollo: {
     allScores: {
-        query: GET_ALL_SCORES,
-    }
+      query: GET_ALL_SCORES,
+      subscribeToMore: {
+        document: SCORES_SUBSCRIPTION,
+        variables() {
+          return {
+            scoresId: this.scoresId,
+          };
+        },
+        update(data) {
+          return data.allScores;
+        },
+        updateQuery: (previousData, { subscriptionData }) => {
+          const updatedScoreIndex = previousData.allScores.findIndex(
+            (scores) =>
+              scores.scoresId === subscriptionData.data.scoresUpdated.scoresId
+          );
+
+          const updatedScore = subscriptionData.data.scoresUpdated;
+          const newAllScores = [...previousData.allScores];
+          newAllScores[updatedScoreIndex] = updatedScore;
+          const result = {
+            ...previousData,
+            allScores: newAllScores,
+          };
+
+          return result;
+        },
+      },
+    },
   },
   methods: {
     async handleMessage(msg) {
-        this.messages.push(msg);
-        let idx = this.messages[this.messages.length - 1]["scoreId"];
-        console.log("index is ", idx)
+      this.messages.push(msg);
+      let idx = this.messages[this.messages.length - 1]["scoreId"];
+      console.log("index is ", idx);
+      const temp = await this.checkScores(idx);
+      console.log(temp.data.score);
 
-        const temp = await this.checkScores(idx)
-        console.log(temp.data.score)
+      if (temp.data.score === null) {
 
-        if (temp.data.score === null) {
-            this.createScores(msg);
-        }
-        else {
-            this.updateScores(msg);
-        }
+        this.createScores(msg);
+      } 
+      else {
+
+        this.updateScores(msg);
+      }
     },
     async checkScores(scoreId) {
-        let score = this.$apollo.query({
-            query: GET_SINGLE_SCORE,
-            variables: {
-                scoresId: scoreId
-            }
-        })
+      let score = this.$apollo.query({
+        query: GET_SINGLE_SCORE,
+        variables: {
+          scoresId: scoreId,
+        },
+      });
 
-        console.log("Checking score " + scoreId)
-        return score
+      console.log("Checking score " + scoreId);
 
+      return score;
     },
+
     updateScores(msg) {
-        console.log(`Update score: # ${msg["scoreId"]}`)
-        this.$apollo.mutate({
-            
-          mutation: UPDATE_SCORES,
-          variables:{
-            scoresId: msg["scoreId"],
-            awayTeamId: msg["awayTeamId"],
-            homeTeamId: msg["homeTeamId"],
-            awayTeamScore: msg["awayTeamScore"],
-            homeTeamScore: msg["homeTeamScore"],
-            quarter: msg["quarter"],
-            time: msg["time"],
-            gameComplete: msg["gameComplete"],
-          }
-        }
-      )
+      console.log(`Update score: # ${msg["scoreId"]}`);
+      this.$apollo.mutate({
+        mutation: UPDATE_SCORES,
+        variables: {
+          scoresId: msg["scoreId"],
+          awayTeamId: msg["awayTeamId"],
+          homeTeamId: msg["homeTeamId"],
+          awayTeamScore: msg["awayTeamScore"],
+          homeTeamScore: msg["homeTeamScore"],
+          quarter: msg["quarter"],
+          time: msg["time"],
+          gameComplete: msg["gameComplete"],
+        },
+      });
     },
     createScores(msg) {
-        console.log("Create score:", msg["scoreId"])
-        this.$apollo.mutate({
-          mutation: CREATE_SCORE,
-          variables:{
-            scoresId: msg["scoreId"],
-            awayTeamId: msg["awayTeamId"],
-            homeTeamId: msg["homeTeamId"],
-            awayTeamScore: msg["awayTeamScore"],
-            homeTeamScore: msg["homeTeamScore"],
-            quarter: msg["quarter"],
-            time: msg["time"],
-            gameComplete: msg["gameComplete"],
-          },
-        }
-      )
+      console.log("Create score:", msg["scoreId"]);
+      this.$apollo.mutate({
+        mutation: CREATE_SCORE,
+        variables: {
+          scoresId: msg["scoreId"],
+          awayTeamId: msg["awayTeamId"],
+          homeTeamId: msg["homeTeamId"],
+          awayTeamScore: msg["awayTeamScore"],
+          homeTeamScore: msg["homeTeamScore"],
+          quarter: msg["quarter"],
+          time: msg["time"],
+          gameComplete: msg["gameComplete"],
+        },
+      });
     },
-
   },
   created() {
     Socket.$on("message", this.handleMessage);
@@ -1068,11 +1192,16 @@ export default {
 - `allScores` will be the GraphQL object that holds the all the returned data from the GraphQL query.
 
 ### Javascript Section
-- We have 5 imports here. The first being the Socket from `socket.js` so we can properly use the WebSocket. The next 4
+- We have 6 imports here. The first being the Socket from `socket.js` so we can properly use the WebSocket. The next 4
 which we will create shortly are going to be the gql (graph query langage) queries that we will send.
 - We have a `data` component which must be in the form of a function in Vue and thus must return. There are a few datatypes here 
 to be used.
-- Within the `apollo` we have an `allScores` object whose `query:` field is being called with `GET_ALL_SCORES`.
+- Within the `apollo` we have an `allScores` object whose `query:` field is being called with `GET_ALL_SCORES`. Now to dive deeper you see
+the `subscribeToMore` object which is how Vue Apollo will use subscriptions. Under `document:` we provide it the `SCORE_SUBSCRIPTION` gql 
+subscription logic. The `update(data)` will return the object's store whereas `updateQuery:` object is being used to parsed for incoming fresh data.
+It finds the proper `scoresId` of the record being updated and in essence creates an array clone and returns it with the old `allScores` query data
+now with the reactive and freshly updating record at that `scoresId`. This allows us to see ALL the currently stored scores within the GraphQL
+API Server as well as to see a reactive constantly updating view of the data via subscriptions.
 - Next in `methods:` we have 4 functions - `handleMessage()`, `checkScores()`, `updateScores()`, and `createScores()`. The first two
 of which are asynchronous functions. 
 - In `handleMessage()` we're getting the `scoresId` primary key from the most recent message. The value of `temp` is invoked
@@ -1085,7 +1214,7 @@ the data is null that means the query did not return data from the GraphQL API S
 When the Vue component is created and socket connection is established it calls `handleMessage()`.
 
 - We now need to create our `gql` queries for use with our Apollo Client. Create a new folder in `src` named `queries`. We will need
-to create 4 different Javascript files.
+to create 5 different Javascript files.
 
 **`all_scores.js`**
 ```js
@@ -1152,6 +1281,25 @@ export const UPDATE_SCORES = gql`mutation updateScores($scoresId: String!, $away
     $awayTeamScore: Int!, $homeTeamScore: Int!, $quarter: Int!, $time: Int! $gameComplete: Boolean!) {
         updateScores(scoresId: $scoresId, awayTeamId: $awayTeamId, homeTeamId: $homeTeamId, awayTeamScore: $awayTeamScore, 
         homeTeamScore: $homeTeamScore, quarter: $quarter, time: $time, gameComplete: $gameComplete) 
+    }
+`
+```
+
+**`updated_scores_subscription.js`**
+```js
+import gql from 'graphql-tag'
+
+export const SCORES_SUBSCRIPTION = gql`subscription onScoreUpdate {
+        scoresUpdated  {
+            scoresId,
+            awayTeamId,
+            homeTeamId,
+            awayTeamScore,
+            homeTeamScore,
+            quarter,
+            time,
+            gameComplete
+        }
     }
 `
 ```
