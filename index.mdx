@@ -207,7 +207,7 @@ quarkus.http.port=8085
 quarkus.log.console.enable=true
 quarkus.log.console.level=INFO
 
-# Base Reactive Messaging Connection Details
+# Base Reactive Messaging Connection Details (with security for ESv10)
 mp.messaging.connector.smallrye-kafka.bootstrap.servers=${BOOTSTRAP_SERVERS}
 mp.messaging.connector.smallrye-kafka.security.protocol=SASL_SSL
 mp.messaging.connector.smallrye-kafka.ssl.protocol=TLSv1.2
@@ -226,7 +226,7 @@ mp.messaging.outgoing.mock-messages.group.id=scores-mock-producer
 mp.messaging.outgoing.mock-messages.value.serializer=io.quarkus.kafka.client.serialization.JsonbSerializer
 
 
-# Quarkus Kafka Streams configuration settings
+# Quarkus Kafka Streams configuration settings (with security for ESv10)
 quarkus.kafka-streams.bootstrap-servers=${BOOTSTRAP_SERVERS}
 quarkus.kafka-streams.application-id=websocket-stream-local
 quarkus.kafka-streams.application-server=localhost:8085
@@ -257,6 +257,8 @@ kafka-streams.metrics.recording.level=DEBUG
     Kafka topic name instead of just the Channel name which is `mock-messages` in this example. 
     - a `group.id` is provided for uniqueness.
     - the `value.serializer` property is provided by using the resteasy JsonbSerializer for serializing our records into JSON format.
+    - If you are trying to connect to a local Kafka Cluster you can remove the security options i.e. the `ssl` and `sasl` prefixes.
+    `mp.messaging.connector.smallrye-kafka.ssl.*` and `quarkus.kafka-streams.ssl.*` for example.
 
 - Most of the `quarkus.kafka-streams.` settings are self-explanatory enough due to their similary to the MP Reactive Messaging ones 
 but we will talk about that in a bit.
@@ -1317,6 +1319,21 @@ node src/index.js
 
 ```shell
 npm run serve
+```
+
+- Before we start our Quarkus application for our producer and Kafka Streams topology we need to do a few 
+environment variable exports. If you are using IBM Event Streams v10 you can get these connection details from the
+`Connect to this Cluster` menu. Otherwise, you can forego the certificate and SCRAM credential variables in a local connection. 
+
+```shell
+export BOOTSTRAP_SERVERS=your-bootstrap-server-address:443 \
+export START_TOPIC_NAME=name-of-topic-to-consume-from \
+export ONGOING_TOPIC_NAME=name-of-topic-to-produce-to \
+export COMPLETE_TOPIC_NAME=name-of-topic-for-complete-games \
+export CERT_LOCATION=/path-to-pkcs12-cert/es-cert.p12 \
+export CERT_PASSWORD=certificate-password \
+export SCRAM_USERNAME=your-scram-username \
+export SCRAM_PASSWORD=your-scram-password \
 ```
 
 - Lastly, start the Quarkus application by in the root directory.
