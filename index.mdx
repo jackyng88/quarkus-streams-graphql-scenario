@@ -3,6 +3,19 @@ title: Quarkus, MP Reactive Messaging, Kafka Streams, GraphQL and VueJS
 description: Using Kafka Streams to process streams for consumption with a GraphQL API Server
 ---
 
+<AnchorLinks>
+    <AnchorLink>Overview</AnchorLink>
+    <AnchorLink>Scenario Prerequisites</AnchorLink>
+    <AnchorLink>Bootstrapping the Quarkus Application</AnchorLink>
+    <AnchorLink>Adding a MicroProfile Reactive Messaging Producer to the Quarkus Application</AnchorLink>
+    <AnchorLink>Creating the WebSocket Server</AnchorLink>
+    <AnchorLink>Creating the Kafka Streams Topology</AnchorLink>
+    <AnchorLink>Creating the Database</AnchorLink>
+    <AnchorLink>Creating the GraphQL API Server</AnchorLink>
+    <AnchorLink>Testing the GraphQL API Server</AnchorLink>
+    <AnchorLink>Creating the GraphQL Client Application with VueJS and Vue-Apollo</AnchorLink>
+    <AnchorLink>Using the Entire Application</AnchorLink>
+</AnchorLinks>
 
 ![Technologies](./images/quarkus-kafka-graphql-vue-diagram.png)
 
@@ -844,7 +857,7 @@ mutation {
 ![GraphQL Mutation](./images/graphql-mutation.png)
 
 
-## Creating the Client Application with VueJS and Vue-Apollo
+## Creating the GraphQL Client Application with VueJS and Vue-Apollo
 
 - We have all the building blocks of the scenario now - a mock producer sending events to a Kafka Topic, a Kafka Streams Topology 
 that will process and stream events to a WebSocket server, a local SQLite database, and a GraphQL API Server that will perform
